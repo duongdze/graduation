@@ -69,11 +69,16 @@ Project đã được cài đặt hệ thống API tự động thông qua lện
 - **File Routes**: Code API sẽ viết trong `BE/routes/api.php` (tất cả các route trong này sẽ có tiền tố là `/api/...`).
 - **User Model**: Đã được thêm Trait `HasApiTokens` để hỗ trợ đăng nhập.
 
-### 2. Cách gọi API từ Frontend
+### 2. Công cụ Frontend
+- **Framework**: Vue 3 (Composition API) + TypeScript.
+- **Styling**: **Tailwind CSS v4** (Cấu hình CSS-first).
+- **Build Tool**: Vite.
+
+### 3. Cách gọi API từ Frontend
 Dùng đường dẫn base đã cấu hình trong `.env` của FE. Ví dụ gọi API lấy thông tin:
 `URL: http://localhost:8000/api/example-route`
 
-### 3. Lưu ý về Branching & Git
+### 4. Lưu ý về Branching & Git
 - Luôn tạo nhánh mới: `git checkout -b feature/ten-tinh-nang`.
 - Không bao giờ đẩy file `.env` lên Git.
 - Trước khi tạo Pull Request, hãy đảm bảo code đã chạy được ở máy cá nhân.
