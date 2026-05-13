@@ -1,0 +1,12 @@
+
+# Dependencies
+node_modules/
+**/node_modules/
+vendor/
+BE/vendor/
+
+# Environment
+.env
+*.env
+BE/.env
+FE/.env
