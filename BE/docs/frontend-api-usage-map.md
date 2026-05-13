@@ -148,7 +148,7 @@ Authorization: Bearer <access_token>
 | Vue screen | API | Status | Ghi chú |
 |---|---|---|---|
 | Payment list/detail | `GET /payments`, `GET /payments/{id}` | ready | Hidden gateway_response |
-| Create payment | `POST /payments` | ready | Creates pending payment and returns signed local MVP checkout URL/token |
+| Create payment | `POST /payments` | ready | Booking must be `pending_payment`; duplicate pending/success payment is rejected |
 | Manual mark paid/failed | `PATCH /payments/{id}/mark-paid`, `PATCH /payments/{id}/mark-failed` | ready | Admin/staff use |
 | Gateway callback | `POST /payments/webhook/{gateway}` | ready | Optional HMAC verification with `PAYMENT_WEBHOOK_SECRET` |
 | Retry payment | `POST /payments/{id}/retry` | ready | New pending attempt |
@@ -257,4 +257,56 @@ Authorization: Bearer <access_token>
 | Create payment | `POST /payments` | ready | Returns signed local MVP `checkout_url` and `checkout_token` |
 | Payment checkout | `GET /payments/{payment}/checkout?token=` | ready | Reads payment checkout session without auth, token-protected |
 | Complete local checkout | `POST /payments/{payment}/checkout/complete` | ready | Body: `token`, `status=success|failed`; updates payment and booking in transaction |
-| Gateway webhook | `POST /payments/webhook/{gateway}` | ready | Optional HMAC verification with `PAYMENT_WEBHOOK_SECRET` |
+| Gateway webhook | `POST /payments/webhook/{gateway}` | ready | Optional HMAC verification; routes through `PaymentService` with amount/idempotency/state checks |
+| Retry payment | `POST /payments/{id}/retry` | ready | Pending returns existing checkout; failed can retry only while booking is `pending_payment` |
+
+## 24. Phase 7.9 FE-Ready Modules
+
+| Vue screen | API | Status | Notes |
+|---|---|---|---|
+| User lock modal | `PATCH /users/{id}/lock` | ready | Body requires `reason`; revokes tokens; login rejects locked users |
+| User unlock action | `PATCH /users/{id}/unlock` | ready | Clears lock metadata and sets `status=active` |
+| Venue lock modal | `PATCH /venue-clusters/{id}/lock` | ready | Body requires `reason`; new bookings are blocked while locked |
+| Venue unlock action | `PATCH /venue-clusters/{id}/unlock` | ready | Clears venue lock metadata and sets `status=active` |
+| Favorite venue list | `GET /favorite-venues` | ready | Current user's saved venues |
+| Favorite toggle | `POST /venue-clusters/{id}/favorite`, `DELETE /venue-clusters/{id}/favorite` | ready | Unique favorite per user/venue |
+| Favorite-only venue search | `GET /venue-clusters?favorite_only=true` | ready | Uses authenticated user favorites |
+| Recruitment create/update/join/approve | existing recruitment endpoints | ready | Backend rejects overlapping player post schedules |
+| Venue review form | `POST /reviews` | ready | Completed booking only; one review per booking |
+| Player rating form | `POST /player-ratings` | ready | Requires `post_id`; validates shared approved participation |
+| Report modal | `POST /reports` | ready | Rating/review is separate from report; supports user, venue, booking, review, player post/rating, community post |
+| Report resolution | `PATCH /reports/{id}/resolve`, `PATCH /reports/{id}/dismiss` | ready | `action_taken` supports content, user/account, and venue actions |
+| Moderation config admin | `GET /moderation-configs`, `PUT /moderation-configs/{key}` | ready | Threshold and auto-lock reason configuration |
+| Moderation evaluation | `php artisan moderation:evaluate` | ready | CLI/job for warnings and auto locks |
+| Policy public pages | `GET /system-policies/public` | ready | Active/effective policies for footer/settings |
+| Policy admin | `/system-policies` CRUD | ready | Admin content management |
+| Homepage banners | `GET /banners/public` | ready | Active banners by position/date |
+| Banner admin | `/banners` CRUD + `PATCH /banners/{id}/toggle` | ready | Admin banner management |
+| System news public | `GET /system-posts/public` | ready | Published posts |
+| System news admin | `/system-posts` CRUD + publish | ready | Admin post management |
+| Community feed | `GET /community-posts?prioritize_favorite_venues=true` | ready | Favorite venue posts sorted first |
+| Community post CRUD | `POST/GET/PUT/DELETE /community-posts` | ready | Owner edits own post; admin can moderate |
+| Community like/comment/view | like, comments, view endpoints | ready | Duplicate like blocked; view count throttled per user |
+| Community moderation | `PATCH /community-posts/{id}/hide`, `PATCH /community-posts/{id}/publish` | ready | Requires `community_post.moderate` |
+
+## 25. Final Review Notes For FE
+
+| Module | FE impact |
+|---|---|
+| Venue list/detail | Normal users only see active venues; admin/venue owner screens can still filter private scoped venues by `status` |
+| Booking create | FE must prevent past start times, but backend now rejects them as well |
+| Payment | Do not create a second payment for an already pending/successful booking; use retry or existing checkout |
+| Reports | Report resolution/dismissal is separate from review/rating and notifies reporter |
+| Notifications | Booking, payment, refund, report, recruitment, and moderation events now create DB notifications |
+| Community comments | Deleting a parent comment updates count for all deleted replies |
+
+## 26. Remaining Out Of Scope
+
+| Feature | Status | Reason |
+|---|---|---|
+| SMS provider production | out_of_scope | Needs provider credentials/integration |
+| Email provider production templates | out_of_scope | Laravel Mail hooks exist; provider/template polish is production setup |
+| Payment gateway production SDK/signature | out_of_scope | Local signed checkout and optional webhook HMAC exist; real VNPAY/MoMo needs credentials |
+| WebSocket realtime | phase 2 | Polling endpoints are ready |
+| eKYC | phase 2 | Requires third-party identity provider |
+| AI moderation | phase 2 | Current moderation is rule/threshold based |

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Feedback\StorePlayerRatingRequest;
 use App\Models\PlayerRating;
+use App\Models\PlayerPost;
 use App\Models\User;
 use App\Services\RatingAggregateService;
 use App\Support\ApiResponse;
@@ -38,13 +39,21 @@ class PlayerRatingController extends Controller
                 ]);
             }
 
+            $post = PlayerPost::query()
+                ->with('participants')
+                ->whereKey($request->validated('post_id'))
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $this->assertUsersParticipatedInPost($post, $request->user()->id, $request->validated('rated_user_id'));
+
             $rating = PlayerRating::updateOrCreate(
                 [
                     'rater_id' => $request->user()->id,
                     'rated_user_id' => $request->validated('rated_user_id'),
+                    'post_id' => $post->id,
                 ],
                 [
-                    'post_id' => $request->validated('post_id'),
                     'rating' => $request->validated('rating'),
                     'comment' => $request->validated('comment'),
                     'tags' => $request->validated('tags'),
@@ -57,5 +66,28 @@ class PlayerRatingController extends Controller
         });
 
         return ApiResponse::success('Player rating saved successfully', $rating->load(['rater', 'ratedUser', 'post']), 201);
+    }
+
+    private function assertUsersParticipatedInPost(PlayerPost $post, string $raterId, string $ratedUserId): void
+    {
+        $approvedParticipantIds = $post->participants
+            ->where('status', 'approved')
+            ->pluck('user_id')
+            ->all();
+
+        $raterIsAuthor = $post->author_id === $raterId;
+        $ratedIsAuthor = $post->author_id === $ratedUserId;
+        $raterApproved = in_array($raterId, $approvedParticipantIds, true);
+        $ratedApproved = in_array($ratedUserId, $approvedParticipantIds, true);
+
+        $allowed = ($raterIsAuthor && $ratedApproved)
+            || ($ratedIsAuthor && $raterApproved)
+            || ($raterApproved && $ratedApproved);
+
+        if (! $allowed) {
+            throw ValidationException::withMessages([
+                'post_id' => ['Both users must be the post author or approved participants in this player post.'],
+            ]);
+        }
     }
 }

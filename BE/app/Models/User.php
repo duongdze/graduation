@@ -24,6 +24,9 @@ class User extends Authenticatable
         'password',
         'avatar_url',
         'status',
+        'lock_reason',
+        'locked_at',
+        'locked_by',
         'bio',
         'address',
         'ward',
@@ -45,6 +48,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'phone_verified_at' => 'datetime',
+            'locked_at' => 'datetime',
             'password' => 'hashed',
             'preferred_sports' => 'array',
             'player_rating_avg' => 'decimal:2',
@@ -268,6 +272,18 @@ class User extends Authenticatable
     public function reportsReceived(): MorphMany
     {
         return $this->morphMany(Report::class, 'reportable');
+    }
+
+    /** Community posts authored by this user */
+    public function communityPosts(): HasMany
+    {
+        return $this->hasMany(CommunityPost::class, 'author_id');
+    }
+
+    /** Venue favorites saved by this user */
+    public function favoriteVenues(): HasMany
+    {
+        return $this->hasMany(FavoriteVenue::class);
     }
 
     /** Verification codes */

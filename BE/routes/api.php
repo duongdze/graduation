@@ -3,15 +3,20 @@
 use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AvailabilityController;
+use App\Http\Controllers\Api\BannerController;
 use App\Http\Controllers\Api\BookingConfigController;
 use App\Http\Controllers\Api\BookingController;
+use App\Http\Controllers\Api\CommunityCommentController;
+use App\Http\Controllers\Api\CommunityPostController;
 use App\Http\Controllers\Api\ComplaintController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\CourtTypeController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\FavoriteVenueController;
 use App\Http\Controllers\Api\FinanceTransactionController;
 use App\Http\Controllers\Api\HolidayPriceController;
 use App\Http\Controllers\Api\MediaController;
+use App\Http\Controllers\Api\ModerationConfigController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\PartnerApplicationController;
@@ -30,6 +35,8 @@ use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\ReviewController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\SlotLockController;
+use App\Http\Controllers\Api\SystemPolicyController;
+use App\Http\Controllers\Api\SystemPostController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\UserPermissionRevokeController;
 use App\Http\Controllers\Api\UserRoleController;
@@ -53,6 +60,10 @@ Route::prefix('auth')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
     });
 });
+
+Route::get('/system-policies/public', [SystemPolicyController::class, 'publicIndex']);
+Route::get('/banners/public', [BannerController::class, 'publicIndex']);
+Route::get('/system-posts/public', [SystemPostController::class, 'publicIndex']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::put('/profile', [ProfileController::class, 'update']);
@@ -95,6 +106,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/venue-clusters/{venueCluster}', [VenueClusterController::class, 'destroy'])->middleware('permission:venue.delete');
     Route::patch('/venue-clusters/{venueCluster}/approve', [VenueClusterController::class, 'approve'])->middleware('permission:venue.approve');
     Route::patch('/venue-clusters/{venueCluster}/reject', [VenueClusterController::class, 'reject'])->middleware('permission:venue.reject');
+    Route::patch('/venue-clusters/{venueCluster}/lock', [VenueClusterController::class, 'lock'])->middleware('permission:venue.lock');
+    Route::patch('/venue-clusters/{venueCluster}/unlock', [VenueClusterController::class, 'unlock'])->middleware('permission:venue.lock');
+    Route::post('/venue-clusters/{venueCluster}/favorite', [FavoriteVenueController::class, 'store'])->middleware('permission:favorite_venue.update');
+    Route::delete('/venue-clusters/{venueCluster}/favorite', [FavoriteVenueController::class, 'destroy'])->middleware('permission:favorite_venue.update');
+    Route::get('/favorite-venues', [FavoriteVenueController::class, 'index'])->middleware('permission:favorite_venue.view');
 
     Route::get('/venue-courts', [VenueCourtController::class, 'index'])->middleware('permission:court.view');
     Route::post('/venue-courts', [VenueCourtController::class, 'store'])->middleware('permission:court.create');
@@ -160,6 +176,28 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/platform-fee-configs', [PlatformFeeConfigController::class, 'index'])->middleware('permission:system_config.view');
     Route::post('/platform-fee-configs', [PlatformFeeConfigController::class, 'store'])->middleware('permission:system_config.update');
 
+    Route::get('/moderation-configs', [ModerationConfigController::class, 'index'])->middleware('permission:moderation_config.view');
+    Route::put('/moderation-configs/{key}', [ModerationConfigController::class, 'update'])->middleware('permission:moderation_config.update');
+
+    Route::get('/system-policies', [SystemPolicyController::class, 'index'])->middleware('permission:system_policy.view');
+    Route::post('/system-policies', [SystemPolicyController::class, 'store'])->middleware('permission:system_policy.create');
+    Route::get('/system-policies/{policy}', [SystemPolicyController::class, 'show'])->middleware('permission:system_policy.view');
+    Route::put('/system-policies/{policy}', [SystemPolicyController::class, 'update'])->middleware('permission:system_policy.update');
+    Route::delete('/system-policies/{policy}', [SystemPolicyController::class, 'destroy'])->middleware('permission:system_policy.delete');
+
+    Route::get('/banners', [BannerController::class, 'index'])->middleware('permission:banner.view');
+    Route::post('/banners', [BannerController::class, 'store'])->middleware('permission:banner.create');
+    Route::put('/banners/{banner}', [BannerController::class, 'update'])->middleware('permission:banner.update');
+    Route::delete('/banners/{banner}', [BannerController::class, 'destroy'])->middleware('permission:banner.delete');
+    Route::patch('/banners/{banner}/toggle', [BannerController::class, 'toggle'])->middleware('permission:banner.update');
+
+    Route::get('/system-posts', [SystemPostController::class, 'index'])->middleware('permission:system_post.view');
+    Route::post('/system-posts', [SystemPostController::class, 'store'])->middleware('permission:system_post.create');
+    Route::get('/system-posts/{post}', [SystemPostController::class, 'show'])->middleware('permission:system_post.view');
+    Route::put('/system-posts/{post}', [SystemPostController::class, 'update'])->middleware('permission:system_post.update');
+    Route::delete('/system-posts/{post}', [SystemPostController::class, 'destroy'])->middleware('permission:system_post.delete');
+    Route::patch('/system-posts/{post}/publish', [SystemPostController::class, 'publish'])->middleware('permission:system_post.update');
+
     Route::get('/player-posts', [PlayerPostController::class, 'index'])->middleware('permission:recruitment.view');
     Route::post('/player-posts', [PlayerPostController::class, 'store'])->middleware('permission:recruitment.create');
     Route::get('/player-posts/{playerPost}', [PlayerPostController::class, 'show'])->middleware('permission:recruitment.view');
@@ -178,6 +216,20 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/player-ratings', [PlayerRatingController::class, 'index'])->middleware('permission:review.view');
     Route::post('/player-ratings', [PlayerRatingController::class, 'store'])->middleware('permission:review.create');
+
+    Route::get('/community-posts', [CommunityPostController::class, 'index'])->middleware('permission:community_post.view');
+    Route::post('/community-posts', [CommunityPostController::class, 'store'])->middleware('permission:community_post.create');
+    Route::get('/community-posts/{post}', [CommunityPostController::class, 'show'])->middleware('permission:community_post.view');
+    Route::put('/community-posts/{post}', [CommunityPostController::class, 'update'])->middleware('permission:community_post.update');
+    Route::delete('/community-posts/{post}', [CommunityPostController::class, 'destroy'])->middleware('permission:community_post.delete');
+    Route::post('/community-posts/{post}/like', [CommunityPostController::class, 'like'])->middleware('permission:community_post.view');
+    Route::delete('/community-posts/{post}/like', [CommunityPostController::class, 'unlike'])->middleware('permission:community_post.view');
+    Route::get('/community-posts/{post}/comments', [CommunityPostController::class, 'comments'])->middleware('permission:community_post.view');
+    Route::post('/community-posts/{post}/comments', [CommunityPostController::class, 'storeComment'])->middleware('permission:community_post.view');
+    Route::delete('/community-comments/{comment}', [CommunityCommentController::class, 'destroy'])->middleware('permission:community_post.delete');
+    Route::post('/community-posts/{post}/view', [CommunityPostController::class, 'recordView'])->middleware('permission:community_post.view');
+    Route::patch('/community-posts/{post}/hide', [CommunityPostController::class, 'hide'])->middleware('permission:community_post.moderate');
+    Route::patch('/community-posts/{post}/publish', [CommunityPostController::class, 'publish'])->middleware('permission:community_post.moderate');
 
     Route::post('/reports', [ReportController::class, 'store'])->middleware('permission:report.create');
     Route::get('/reports', [ReportController::class, 'index'])->middleware('permission:report.view');

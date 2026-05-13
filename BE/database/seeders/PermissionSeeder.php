@@ -162,6 +162,31 @@ class PermissionSeeder extends Seeder
                 ['code' => 'dashboard.admin',       'name' => 'Xem dashboard admin'],
                 ['code' => 'dashboard.venue_owner', 'name' => 'Xem dashboard chủ sân'],
             ],
+
+            'Moderation Extension' => [
+                ['code' => 'venue.lock', 'name' => 'Lock/unlock venue'],
+                ['code' => 'moderation_config.view', 'name' => 'View moderation configs'],
+                ['code' => 'moderation_config.update', 'name' => 'Update moderation configs'],
+                ['code' => 'system_policy.view', 'name' => 'View system policies'],
+                ['code' => 'system_policy.create', 'name' => 'Create system policies'],
+                ['code' => 'system_policy.update', 'name' => 'Update system policies'],
+                ['code' => 'system_policy.delete', 'name' => 'Delete system policies'],
+                ['code' => 'banner.view', 'name' => 'View banners'],
+                ['code' => 'banner.create', 'name' => 'Create banners'],
+                ['code' => 'banner.update', 'name' => 'Update banners'],
+                ['code' => 'banner.delete', 'name' => 'Delete banners'],
+                ['code' => 'system_post.view', 'name' => 'View system posts'],
+                ['code' => 'system_post.create', 'name' => 'Create system posts'],
+                ['code' => 'system_post.update', 'name' => 'Update system posts'],
+                ['code' => 'system_post.delete', 'name' => 'Delete system posts'],
+                ['code' => 'community_post.view', 'name' => 'View community posts'],
+                ['code' => 'community_post.create', 'name' => 'Create community posts'],
+                ['code' => 'community_post.update', 'name' => 'Update community posts'],
+                ['code' => 'community_post.delete', 'name' => 'Delete community posts'],
+                ['code' => 'community_post.moderate', 'name' => 'Moderate community posts'],
+                ['code' => 'favorite_venue.view', 'name' => 'View favorite venues'],
+                ['code' => 'favorite_venue.update', 'name' => 'Update favorite venues'],
+            ],
         ];
 
         foreach ($permissions as $groupName => $items) {

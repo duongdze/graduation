@@ -29,6 +29,7 @@ class RolePermissionSeeder extends Seeder
                 || str_starts_with($code, 'venue.view')
                 || $code === 'venue.approve'
                 || $code === 'venue.reject'
+                || $code === 'venue.lock'
                 || str_starts_with($code, 'report.')
                 || str_starts_with($code, 'complaint.')
                 || str_starts_with($code, 'review.moderate')
@@ -36,6 +37,11 @@ class RolePermissionSeeder extends Seeder
                 || str_starts_with($code, 'notification.')
                 || $code === 'audit_log.view'
                 || str_starts_with($code, 'system_config.')
+                || str_starts_with($code, 'moderation_config.')
+                || str_starts_with($code, 'system_policy.')
+                || str_starts_with($code, 'banner.')
+                || str_starts_with($code, 'system_post.')
+                || $code === 'community_post.moderate'
                 || $code === 'booking.view'
                 || $code === 'payment.view'
             );
@@ -59,6 +65,8 @@ class RolePermissionSeeder extends Seeder
                 || str_starts_with($code, 'review.view')
                 || str_starts_with($code, 'review.update') // reply to review
                 || str_starts_with($code, 'recruitment.')
+                || in_array($code, ['community_post.view', 'community_post.create', 'community_post.update', 'community_post.delete'], true)
+                || str_starts_with($code, 'favorite_venue.')
                 || str_starts_with($code, 'notification.view')
                 || str_starts_with($code, 'chat.')
                 || $code === 'dashboard.venue_owner'
@@ -110,6 +118,8 @@ class RolePermissionSeeder extends Seeder
                 || $code === 'recruitment.reject_participant'
                 || $code === 'report.create'
                 || $code === 'complaint.create'
+                || in_array($code, ['community_post.view', 'community_post.create', 'community_post.update', 'community_post.delete'], true)
+                || str_starts_with($code, 'favorite_venue.')
                 || $code === 'notification.view'
                 || $code === 'chat.view'
                 || $code === 'chat.send'

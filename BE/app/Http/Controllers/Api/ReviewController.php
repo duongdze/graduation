@@ -52,6 +52,12 @@ class ReviewController extends Controller
                 ]);
             }
 
+            if (Review::where('booking_id', $booking->id)->lockForUpdate()->exists()) {
+                throw ValidationException::withMessages([
+                    'booking_id' => ['This booking has already been reviewed.'],
+                ]);
+            }
+
             $review = Review::create([
                 'booking_id' => $booking->id,
                 'customer_id' => $request->user()->id,

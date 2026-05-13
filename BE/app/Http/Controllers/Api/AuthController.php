@@ -129,6 +129,7 @@ class AuthController extends Controller
             'email_verified_at' => $user->email_verified_at,
             'phone_verified_at' => $user->phone_verified_at,
             'status' => $user->status,
+            'lock_reason' => $user->lock_reason,
             'avatar_url' => $user->avatar_url,
             'bio' => $user->bio,
             'address' => $user->address,

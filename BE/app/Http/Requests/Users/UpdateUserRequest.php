@@ -19,6 +19,7 @@ class UpdateUserRequest extends ApiRequest
             'phone' => ['nullable', 'string', 'max:15', Rule::unique('users', 'phone')->ignore($userId)],
             'password' => ['nullable', Password::min(8)],
             'status' => ['nullable', 'string', 'in:pending_verify,active,locked'],
+            'lock_reason' => ['required_if:status,locked', 'nullable', 'string', 'max:2000'],
             'bio' => ['nullable', 'string'],
             'address' => ['nullable', 'string'],
             'ward' => ['nullable', 'string', 'max:100'],

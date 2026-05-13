@@ -109,9 +109,9 @@ Chức năng nên để phase sau hoặc cần bên thứ ba: eKYC, WebSocket, S
 | 73.0 | Khách hàng / Đặt sân | Cơ chế: Khóa khung giờ tạm thời | Auto slot locks TTL 15 phút và cleanup command | `POST /bookings`, `bookings:expire-pending` | `BookingService`, `ExpirePendingBookings` | `slot_locks`, `bookings` | DONE | DB lock phù hợp MySQL MVP | Redis lock có thể phase scale |
 | 74.0 | Khách hàng / Đặt sân | Cơ chế: Chống đặt trùng | Có transaction + lockForUpdate + overlap booking/lock | `POST /bookings` | `BookingService` | `bookings`, `slot_locks` | DONE | MySQL row-level lock inside transaction | Nên stress test |
 | 75.0 | Khách hàng / Thanh toán | Khởi tạo giao dịch thanh toán | Có payment pending, signed checkout token/URL và local MVP checkout callback | `POST /payments`, `GET /payments/{id}/checkout`, `POST /payments/{id}/checkout/complete` | `PaymentController`, `PaymentService`, `PaymentGatewayService` | `payments`, `bookings` | DONE | FE có checkout_url thật của backend; VNPAY/MoMo SDK thật vẫn phase provider | None |
-| 76.0 | Khách hàng / Thanh toán | Cơ chế: Xử lý phản hồi thanh toán | Có webhook MVP, amount check, idempotency, update payment/booking, HMAC signature tùy chọn | `POST /payments/webhook/{gateway}` | `PaymentWebhookController` | `payments`, `bookings`, `notifications` | DONE | Nếu cấu hình `PAYMENT_WEBHOOK_SECRET`, bắt buộc header `X-Webhook-Signature` | Gateway SDK riêng vẫn phase provider |
+| 76.0 | Khách hàng / Thanh toán | Cơ chế: Xử lý phản hồi thanh toán | Có webhook MVP, amount check, idempotency, service-level booking/payment state validation, HMAC signature tùy chọn | `POST /payments/webhook/{gateway}` | `PaymentWebhookController`, `PaymentService` | `payments`, `bookings`, `notifications` | DONE | Nếu cấu hình `PAYMENT_WEBHOOK_SECRET`, bắt buộc header `X-Webhook-Signature` | Gateway SDK riêng vẫn phase provider |
 | 77.0 | Khách hàng / Thanh toán | Cơ chế: Ngăn chặn xử lý trùng lặp | Có unique gateway_txn_id và idempotency check | `POST /payments/webhook/{gateway}` | `PaymentWebhookController` | `payments` | DONE | Duplicate webhook returns already processed | None |
-| 78.0 | Khách hàng / Thanh toán | Thực hiện thanh toán lại | Có retry payment endpoint | `POST /payments/{payment}/retry` | `PaymentWebhookController` | `payments`, `bookings` | DONE | Creates new pending attempt | Gateway URL still phase gateway |
+| 78.0 | Khách hàng / Thanh toán | Thực hiện thanh toán lại | Có retry payment endpoint | `POST /payments/{payment}/retry` | `PaymentWebhookController` | `payments`, `bookings` | DONE | Pending returns existing checkout; failed creates new attempt only while booking is `pending_payment` | Gateway URL still phase gateway |
 | 79.0 | Khách hàng / Hậu đặt sân | Gửi yêu cầu hủy đơn | Cancel enforce `cancel_before_hours`, xóa lock, tạo refund pending | `PATCH /bookings/{id}/cancel` | `BookingController`, `BookingService` | `bookings`, `slot_locks`, `refunds` | DONE | Admin/owner có thể override theo quyền vận hành | None |
 | 80.0 | Khách hàng / Hậu đặt sân | Tạo khiếu nại | Có complaint create/detail/list và media evidence | `POST /complaints`, `POST /media/upload` | `ComplaintController`, `MediaService` | `complaints`, `media` | DONE | Complaint tied to booking | None |
 | 81.0 | Khách hàng / Hậu đặt sân | Đánh giá và nhận xét | Có review sau booking completed + rating aggregate | `POST /reviews` | `ReviewController`, `RatingAggregateService` | `reviews`, `venue_clusters` | DONE | Updates rating avg/count | None |
@@ -262,3 +262,77 @@ Coverage sau Phase 7.8:
 - MISSING: `0`
 - EXTENSION / OUT_OF_SCOPE: `5`
 | eKYC, Google direction, WebSocket realtime | Phase sau / third-party integration |
+
+## 12. Phase 7.9 Advanced Business Rules And New Modules
+
+This phase adds backend modules beyond the original Excel MVP rows. These are FE-ready backend APIs and business rules, while keeping rating/review and report flows separate.
+
+### DONE
+
+| Area | Backend added | API / Command | Tables / Services |
+|---|---|---|---|
+| Recruitment schedule conflict | Create/update/join/approve rejects overlapping player posts by `play_date`, `start_time`, `end_time`; checks `pending` and `approved`, ignores `rejected`/`cancelled`; uses transaction and `lockForUpdate()` | Existing player post and join/approve endpoints | `RecruitmentService`, `player_post_participants`, `player_posts` |
+| Venue review rules | Completed booking only, one review per booking, rating 1-5, updates venue rating aggregate | `POST /reviews` | `ReviewController`, `RatingAggregateService`, `reviews`, `venue_clusters` |
+| Player rating rules | Requires same `player_post`, author/approved participant relationship, no self-rating, rating 1-5 | `POST /player-ratings` | `PlayerRatingController`, `player_ratings` |
+| Report polymorphic targets | Supports user/account, venue cluster, booking, review, player post, player rating, community post; report actions include account/venue lock outcomes | `/reports` create/list/detail/review/resolve/dismiss | `ReportController`, `reports` |
+| Moderation configs | Thresholds and lock reasons are configurable | `GET /moderation-configs`, `PUT /moderation-configs/{key}` | `moderation_configs`, `ModerationService` |
+| Manual lock/ban | User and venue lock require reason; user tokens revoked; locked venue blocks new booking | `PATCH /users/{id}/lock`, `PATCH /venue-clusters/{id}/lock` | `users.lock_reason`, `venue_clusters.lock_reason`, `ModerationService` |
+| Auto moderation | Evaluates reports and low ratings, sends DB notifications, auto-locks users/venues when thresholds are crossed | `php artisan moderation:evaluate` | `ModerationService`, `EvaluateModeration` |
+| System policy content | Admin CRUD and public active policy list | `/system-policies`, `/system-policies/public` | `system_policies` |
+| Banners | Admin CRUD/toggle and public active banners | `/banners`, `/banners/public` | `banners` |
+| System posts | Admin CRUD/publish and public published posts | `/system-posts`, `/system-posts/public` | `system_posts` |
+| Community posts | Feed, detail, create/update/delete, like, comment, view count, admin hide/publish | `/community-posts`, `/community-comments/{id}` | `community_posts`, `community_post_likes`, `community_post_comments` |
+| Favorite venues | Save/remove/list favorite venues; venue list filter; community feed can prioritize favorite venue posts | `/favorite-venues`, `/venue-clusters/{id}/favorite`, query flags | `favorite_venues` |
+| Permissions | New permissions for venue lock, moderation configs, policies, banners, system posts, community posts, favorites | Seeders | `PermissionSeeder`, `RolePermissionSeeder` |
+
+### PARTIAL
+
+| Area | Current backend | Remaining |
+|---|---|---|
+| Moderation warning deduplication | Command creates DB notifications when thresholds are met | Could add per-period dedupe/audit event table if production requires no repeated warnings |
+| Community view counting | Per-user cache throttle for 30 minutes | Could add durable view event table for analytics-grade uniqueness |
+
+### OUT_OF_SCOPE / PHASE 2
+
+| Feature | Reason |
+|---|---|
+| SMS provider production | Requires provider credentials and delivery contract |
+| Email provider production templates | Laravel Mail integration exists; production provider/templates are deployment work |
+| Payment gateway SDK/signature production | Local signed checkout and optional webhook HMAC exist; VNPAY/MoMo production needs credentials |
+| WebSocket realtime | Polling APIs are ready; realtime channel is phase 2 |
+| eKYC | Requires third-party identity provider |
+| AI moderation | Current backend uses reports, ratings, and threshold policy rules |
+
+Verification for Phase 7.9:
+
+- `php -l` on app/database PHP files: passed.
+- `php artisan route:list`: passed, `194` routes.
+- `php artisan migrate:fresh --seed`: passed.
+- `php artisan moderation:evaluate`: passed.
+- `php artisan test`: passed, `2` tests.
+
+## 13. Final Full API Review Fixes
+
+Final review found and fixed callable API/business-rule issues without rewriting modules.
+
+| Module | Issue found | Fix | Status |
+|---|---|---|---|
+| Booking | Start time in the past could pass when end time was still future | Booking create now rejects `start <= now()` and still checks slot locks/double booking in transaction | DONE |
+| Payment | `POST /payments` could accept already paid bookings and duplicate open attempts | Only `pending_payment` bookings can create payment; duplicate pending/success attempts blocked | DONE |
+| Payment webhook | Webhook updated payment directly instead of using service flow | Callback now calls `PaymentService::processGatewayResult()` for transaction, idempotency, booking-state guard, and notification | DONE |
+| Payment retry | Retrying a pending payment could create duplicate attempts | Pending retry returns existing checkout; failed retry requires booking `pending_payment` and reuses existing pending if present | DONE |
+| Refund | Approve/reject had transaction flow but no customer notification | Refund approve/reject now creates DB notifications | DONE |
+| Report | Resolve/dismiss changed status but did not notify reporter | Reporter receives DB notification; report remains separate from review/rating | DONE |
+| Recruitment | Participant events had business validation but limited notifications | Join/approve/reject now create DB notifications | DONE |
+| Venue visibility | Normal user venue list/detail could expose non-active venues | Non-admin/non-owner users only see active venues; scoped owners/admins can inspect private venues | DONE |
+| Community comments | Parent comment delete could leave `comment_count` too high when replies cascade | Delete now subtracts the deleted comment subtree count | DONE |
+
+Final verification after fixes:
+
+- API routes: `188`; total Laravel routes: `194`.
+- Route controller reflection: `route_controller_missing=0`.
+- Route permission check: `route_permission_missing=0`.
+- `php artisan route:list`: passed.
+- `php artisan migrate:fresh --seed`: passed.
+- `php artisan moderation:evaluate`: passed.
+- `php artisan test`: passed, `2` tests.

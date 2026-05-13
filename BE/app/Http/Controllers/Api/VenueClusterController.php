@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Moderation\LockResourceRequest;
 use App\Http\Requests\Venue\UpsertVenueClusterRequest;
 use App\Models\BookingConfig;
 use App\Models\PriceSlot;
 use App\Models\VenueCluster;
 use App\Models\VenueViewEvent;
 use App\Services\AuditLogService;
+use App\Services\ModerationService;
 use App\Services\NotificationService;
 use App\Support\ApiResponse;
 use App\Traits\AuthorizesVenueScope;
@@ -22,14 +24,19 @@ class VenueClusterController extends Controller
 
     public function __construct(
         private readonly NotificationService $notificationService,
-        private readonly AuditLogService $auditLogService
+        private readonly AuditLogService $auditLogService,
+        private readonly ModerationService $moderationService
     ) {}
 
     public function index(Request $request): JsonResponse
     {
+        $user = $request->user();
+        $isVenueScopedUser = $user->hasRole('venue_owner') || $this->venueScopeIds($user) !== [];
+
         $query = $this->scopeVenueClustersForUser(VenueCluster::query(), $request->user())
             ->with(['owner', 'approver'])
-            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')->toString()))
+            ->withExists(['favorites as is_favorited' => fn ($q) => $q->where('user_id', $request->user()->id)])
+            ->when($request->boolean('favorite_only'), fn ($q) => $q->whereHas('favorites', fn ($fq) => $fq->where('user_id', $request->user()->id)))
             ->when($request->filled('city'), fn ($q) => $q->where('city', $request->string('city')->toString()))
             ->when($request->filled('district'), fn ($q) => $q->where('district', $request->string('district')->toString()))
             ->when($request->filled('owner_id'), fn ($q) => $q->where('owner_id', $request->string('owner_id')->toString()))
@@ -43,6 +50,12 @@ class VenueClusterController extends Controller
             ->when($request->filled('court_type_id'), fn ($q) => $q->whereHas('courts', fn ($cq) => $cq->where('court_type_id', $request->integer('court_type_id'))))
             ->when($request->filled('min_price'), fn ($q) => $q->whereHas('priceSlots', fn ($pq) => $pq->where('price', '>=', $request->input('min_price'))))
             ->when($request->filled('max_price'), fn ($q) => $q->whereHas('priceSlots', fn ($pq) => $pq->where('price', '<=', $request->input('max_price'))));
+
+        if ($this->isPlatformAdmin($user) || $isVenueScopedUser) {
+            $query->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')->toString()));
+        } else {
+            $query->where('status', 'active');
+        }
 
         // Geo-distance sorting (Haversine)
         if ($request->filled('lat') && $request->filled('lng')) {
@@ -81,6 +94,13 @@ class VenueClusterController extends Controller
 
     public function show(VenueCluster $venueCluster): JsonResponse
     {
+        $user = request()->user();
+        $canSeePrivateVenue = $this->isPlatformAdmin($user)
+            || $venueCluster->owner_id === $user->id
+            || in_array($venueCluster->id, $this->venueScopeIds($user), true);
+
+        abort_unless($venueCluster->status === 'active' || $canSeePrivateVenue, 404);
+
         return ApiResponse::success('Fetched venue cluster successfully', $venueCluster->load(['owner', 'courts.courtType', 'bookingConfig', 'priceSlots', 'media']));
     }
 
@@ -200,6 +220,20 @@ class VenueClusterController extends Controller
         );
 
         return ApiResponse::success('Venue cluster rejected successfully', $venueCluster->fresh('approver'));
+    }
+
+    public function lock(LockResourceRequest $request, VenueCluster $venueCluster): JsonResponse
+    {
+        $venueCluster = $this->moderationService->lockVenue($venueCluster, $request->validated('reason'), $request->user());
+
+        return ApiResponse::success('Venue cluster locked successfully', $venueCluster->fresh(['owner', 'locker']));
+    }
+
+    public function unlock(Request $request, VenueCluster $venueCluster): JsonResponse
+    {
+        $venueCluster = $this->moderationService->unlockVenue($venueCluster, $request->user());
+
+        return ApiResponse::success('Venue cluster unlocked successfully', $venueCluster->fresh(['owner', 'locker']));
     }
 
     public function recordView(Request $request, VenueCluster $venueCluster): JsonResponse

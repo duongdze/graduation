@@ -19,7 +19,7 @@ class UpsertPlayerPostRequest extends ApiRequest
             'booking_id' => ['nullable', 'uuid', 'exists:bookings,id'],
             'play_date' => [$required, 'date'],
             'start_time' => [$required, 'date_format:H:i'],
-            'end_time' => ['nullable', 'date_format:H:i', 'after:start_time'],
+            'end_time' => [$required, 'date_format:H:i', 'after:start_time'],
             'location_name' => ['nullable', 'string', 'max:255'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],

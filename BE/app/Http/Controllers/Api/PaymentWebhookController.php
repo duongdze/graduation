@@ -3,21 +3,17 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Booking;
 use App\Models\Payment;
-use App\Services\NotificationService;
 use App\Services\PaymentService;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class PaymentWebhookController extends Controller
 {
     public function __construct(
-        private readonly PaymentService $paymentService,
-        private readonly NotificationService $notificationService
+        private readonly PaymentService $paymentService
     ) {}
 
     /**
@@ -42,7 +38,6 @@ class PaymentWebhookController extends Controller
 
         $gatewayTxnId = $request->input('gateway_txn_id');
 
-        // Idempotency check: already processed?
         $existingPayment = Payment::where('gateway_txn_id', $gatewayTxnId)->first();
         if ($existingPayment && $existingPayment->status !== 'pending') {
             return ApiResponse::success('Transaction already processed.', [
@@ -51,7 +46,6 @@ class PaymentWebhookController extends Controller
             ]);
         }
 
-        // Find the payment record
         $payment = $existingPayment;
         if (! $payment) {
             if ($request->filled('payment_id')) {
@@ -66,7 +60,6 @@ class PaymentWebhookController extends Controller
             }
         }
 
-        // Validate amount matches
         if (abs((float) $payment->amount - (float) $request->input('amount')) > 0.01) {
             Log::warning('Payment webhook amount mismatch', [
                 'payment_id' => $payment->id,
@@ -78,55 +71,16 @@ class PaymentWebhookController extends Controller
             return ApiResponse::error('Amount mismatch.', [], 422);
         }
 
-        DB::transaction(function () use ($request, $payment, $gateway, $gatewayTxnId) {
-            $payment = Payment::whereKey($payment->id)->lockForUpdate()->firstOrFail();
-
-            if ($payment->status !== 'pending') {
-                return; // Already processed (race condition check)
-            }
-
-            $payment->update([
-                'gateway_txn_id' => $gatewayTxnId,
-                'gateway_response' => $request->all(),
-                'status' => $request->input('status') === 'success' ? 'success' : 'failed',
-                'paid_at' => $request->input('status') === 'success' ? now() : null,
-            ]);
-
-            if ($request->input('status') === 'success') {
-                $booking = $payment->booking;
-                if ($booking && $booking->status === 'pending_payment') {
-                    $booking->update(['status' => 'paid']);
-                }
-
-                // Notify customer
-                if ($booking?->customer_id) {
-                    app(NotificationService::class)->createForUser(
-                        $booking->customer_id,
-                        'payment_success',
-                        'Thanh toán thành công',
-                        "Đơn đặt sân {$booking->booking_code} đã thanh toán thành công.",
-                        'Booking',
-                        $booking->id
-                    );
-                }
-
-                if ($booking?->cluster?->owner_id && $booking->cluster->owner_id !== $booking->customer_id) {
-                    app(NotificationService::class)->createForUser(
-                        $booking->cluster->owner_id,
-                        'booking_paid',
-                        'Booking paid',
-                        "Booking {$booking->booking_code} has been paid.",
-                        'Booking',
-                        $booking->id,
-                        ['payment_id' => $payment->id, 'gateway' => $gateway]
-                    );
-                }
-            }
-        });
+        $processedPayment = $this->paymentService->processGatewayResult(
+            $payment,
+            $gatewayTxnId,
+            $request->input('status'),
+            array_merge($request->all(), ['gateway' => $gateway])
+        );
 
         return ApiResponse::success('Webhook processed successfully.', [
-            'payment_id' => $payment->id,
-            'status' => $payment->fresh()->status,
+            'payment_id' => $processedPayment->id,
+            'status' => $processedPayment->status,
         ]);
     }
 
@@ -152,25 +106,40 @@ class PaymentWebhookController extends Controller
      */
     public function retry(Request $request, Payment $payment): JsonResponse
     {
-        if (! in_array($payment->status, ['pending', 'failed'])) {
+        if (! in_array($payment->status, ['pending', 'failed'], true)) {
             return ApiResponse::error('Only pending or failed payments can be retried.', [], 422);
         }
 
-        // Check if booking is still valid
+        if ($payment->status === 'pending') {
+            return ApiResponse::success('Payment is still pending. Continue the existing payment attempt.', [
+                'payment' => $payment,
+                'checkout' => $this->paymentService->checkoutPayload($payment),
+            ]);
+        }
+
         $booking = $payment->booking;
-        if (! $booking || in_array($booking->status, ['cancelled', 'expired', 'completed'])) {
+        if (! $booking || $booking->status !== 'pending_payment') {
             return ApiResponse::error('The associated booking is no longer valid for payment.', [], 422);
         }
 
-        // Create a new payment attempt
-        $newPayment = DB::transaction(function () use ($request, $payment, $booking) {
-            return Payment::create([
-                'booking_id' => $booking->id,
-                'amount' => $payment->amount,
-                'method' => $payment->method,
-                'status' => 'pending',
+        $existingPending = Payment::where('booking_id', $booking->id)
+            ->where('status', 'pending')
+            ->latest()
+            ->first();
+
+        if ($existingPending) {
+            return ApiResponse::success('A pending payment attempt already exists.', [
+                'payment' => $existingPending,
+                'checkout' => $this->paymentService->checkoutPayload($existingPending),
             ]);
-        });
+        }
+
+        $newPayment = Payment::create([
+            'booking_id' => $booking->id,
+            'amount' => $payment->amount,
+            'method' => $payment->method,
+            'status' => 'pending',
+        ]);
 
         return ApiResponse::success('Payment retry created. Complete the payment.', [
             'payment' => $newPayment,

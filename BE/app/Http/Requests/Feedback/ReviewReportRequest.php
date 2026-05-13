@@ -9,7 +9,7 @@ class ReviewReportRequest extends ApiRequest
     public function rules(): array
     {
         return [
-            'action_taken' => ['nullable', 'string', 'in:warning,content_hidden,content_deleted,user_suspended,user_banned'],
+            'action_taken' => ['nullable', 'string', 'in:warning,content_hidden,content_deleted,user_suspended,user_banned,account_locked,venue_warned,venue_locked'],
             'action_note' => ['nullable', 'string'],
         ];
     }

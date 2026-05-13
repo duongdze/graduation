@@ -20,6 +20,10 @@ use Illuminate\Validation\ValidationException;
 
 class BookingService
 {
+    public function __construct(
+        private readonly NotificationService $notificationService
+    ) {}
+
     public function create(array $data, User $actor): Booking
     {
         return DB::transaction(function () use ($data, $actor) {
@@ -27,13 +31,20 @@ class BookingService
             $start = Carbon::parse($date.' '.$data['start_time']);
             $end = Carbon::parse($date.' '.$data['end_time']);
 
-            if ($end->lessThanOrEqualTo(now())) {
+            if ($start->lessThanOrEqualTo(now())) {
                 throw ValidationException::withMessages([
                     'booking_date' => ['Cannot create a booking in the past.'],
                 ]);
             }
 
             $court = VenueCourt::query()->whereKey($data['court_id'])->lockForUpdate()->firstOrFail();
+            $court->load('cluster');
+            if ($court->cluster?->status === 'locked') {
+                throw ValidationException::withMessages([
+                    'court_id' => ['This venue is locked and cannot receive new bookings.'],
+                ]);
+            }
+
             $duration = $start->diffInMinutes($end);
             $startTime = $start->format('H:i:s');
             $endTime = $end->format('H:i:s');
@@ -84,6 +95,8 @@ class BookingService
                 'expires_at' => now()->addMinutes(15),
             ]);
 
+            $this->notifyBookingCreated($booking);
+
             return $booking->load(['customer', 'court', 'cluster']);
         });
     }
@@ -102,6 +115,7 @@ class BookingService
             ]);
 
             $booking->update(['status' => 'paid']);
+            $this->notifyPaymentSuccess($booking);
 
             return [
                 'booking' => $booking->fresh(['customer', 'court', 'cluster', 'payments']),
@@ -138,6 +152,7 @@ class BookingService
 
             SlotLock::where('booking_id', $locked->id)->delete();
             $this->createRefundRequestsForCancelledBooking($locked);
+            $this->notifyBookingCancelled($locked);
 
             return $locked->fresh(['customer', 'court', 'cluster']);
         });
@@ -155,6 +170,7 @@ class BookingService
             }
 
             $locked->update(['status' => 'paid']);
+            $this->notifyBookingConfirmed($locked);
 
             return $locked->fresh(['customer', 'court', 'cluster']);
         });
@@ -355,5 +371,83 @@ class BookingService
     private function makeBookingCode(): string
     {
         return 'BK'.now()->format('ymdHis').Str::upper(Str::random(4));
+    }
+
+    private function notifyBookingCreated(Booking $booking): void
+    {
+        $booking->loadMissing('cluster');
+
+        if ($booking->customer_id) {
+            $this->notificationService->createForUser(
+                $booking->customer_id,
+                'booking_created',
+                'Booking created',
+                "Booking {$booking->booking_code} is waiting for payment.",
+                'Booking',
+                $booking->id
+            );
+        }
+
+        if ($booking->cluster?->owner_id && $booking->cluster->owner_id !== $booking->customer_id) {
+            $this->notificationService->createForUser(
+                $booking->cluster->owner_id,
+                'booking_created',
+                'New booking created',
+                "Booking {$booking->booking_code} was created for your venue.",
+                'Booking',
+                $booking->id
+            );
+        }
+    }
+
+    private function notifyBookingCancelled(Booking $booking): void
+    {
+        $booking->loadMissing('cluster');
+
+        $userIds = array_filter([
+            $booking->customer_id,
+            $booking->cluster?->owner_id,
+        ]);
+
+        $this->notificationService->createForUsers(
+            $userIds,
+            'booking_cancelled',
+            'Booking cancelled',
+            "Booking {$booking->booking_code} was cancelled.",
+            'Booking',
+            $booking->id
+        );
+    }
+
+    private function notifyBookingConfirmed(Booking $booking): void
+    {
+        if (! $booking->customer_id) {
+            return;
+        }
+
+        $this->notificationService->createForUser(
+            $booking->customer_id,
+            'booking_confirmed',
+            'Booking confirmed',
+            "Booking {$booking->booking_code} has been confirmed.",
+            'Booking',
+            $booking->id
+        );
+    }
+
+    private function notifyPaymentSuccess(Booking $booking): void
+    {
+        if (! $booking->customer_id) {
+            return;
+        }
+
+        $this->notificationService->createForUser(
+            $booking->customer_id,
+            'payment_success',
+            'Payment successful',
+            "Booking {$booking->booking_code} has been paid.",
+            'Booking',
+            $booking->id
+        );
     }
 }

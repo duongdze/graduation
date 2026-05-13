@@ -3,10 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Moderation\LockResourceRequest;
 use App\Http\Requests\Users\StoreUserRequest;
 use App\Http\Requests\Users\UpdateUserRequest;
 use App\Models\User;
-use App\Services\AuditLogService;
+use App\Services\ModerationService;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,7 +15,7 @@ use Illuminate\Support\Facades\Hash;
 
 class UserController extends Controller
 {
-    public function __construct(private readonly AuditLogService $auditLogService) {}
+    public function __construct(private readonly ModerationService $moderationService) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -72,39 +73,16 @@ class UserController extends Controller
         return ApiResponse::success('User deleted successfully');
     }
 
-    public function lock(Request $request, User $user): JsonResponse
+    public function lock(LockResourceRequest $request, User $user): JsonResponse
     {
-        $user->update(['status' => 'locked']);
-        $user->tokens()->delete();
-
-        $this->auditLogService->log(
-            $request->user()->id,
-            'user.locked',
-            'User',
-            $user->id,
-            null,
-            ['status' => 'locked'],
-            'user',
-            $request
-        );
+        $user = $this->moderationService->lockUser($user, $request->validated('reason'), $request->user());
 
         return ApiResponse::success('User locked successfully', $user->fresh());
     }
 
     public function unlock(Request $request, User $user): JsonResponse
     {
-        $user->update(['status' => 'active']);
-
-        $this->auditLogService->log(
-            $request->user()->id,
-            'user.unlocked',
-            'User',
-            $user->id,
-            null,
-            ['status' => 'active'],
-            'user',
-            $request
-        );
+        $user = $this->moderationService->unlockUser($user, $request->user());
 
         return ApiResponse::success('User unlocked successfully', $user->fresh());
     }

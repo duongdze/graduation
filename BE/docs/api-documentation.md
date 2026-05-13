@@ -6,7 +6,7 @@
 - Auth: Laravel Sanctum Bearer Token.
 - Header FE gửi sau khi login: `Authorization: Bearer <access_token>`.
 - Content type mặc định: `application/json`, riêng media upload dùng `multipart/form-data`.
-- Tổng số API route hiện tại: `149`.
+- Tổng số API route hiện tại: `188` API routes (`194` total Laravel routes from `php artisan route:list`).
 - Public API chính: register, login, forgot/reset password, send/verify code, payment webhook.
 
 Success:
@@ -718,3 +718,102 @@ Additional backend rules now enforced:
 - Court delete is blocked when future active bookings exist.
 - Payment success dispatches DB notifications for customer and venue owner.
 - `bookings:send-reminders --minutes=120` creates reminder notifications and is scheduled every five minutes.
+
+## Phase 7.9 Advanced Moderation, Content, Community, Favorites
+
+Verified route count after this update: `188` API routes, `194` total Laravel routes.
+
+### Advanced business rules
+
+- Recruitment create/update/join/approve now rejects overlapping player posts for the same user by `play_date`, `start_time`, and `end_time`.
+- Conflict checks include `pending` and `approved` participations and ignore `rejected`/`cancelled`.
+- Join/approve runs in `DB::transaction()` and uses `lockForUpdate()` on the target post and participant rows.
+- Player post `end_time` is now required so schedule conflicts can be checked.
+- Venue reviews require a completed booking, only the booking customer can review unless the actor can moderate, and one booking can only have one review.
+- Player ratings require a shared `player_post` relationship: author-to-approved participant, approved participant-to-author, or approved participant-to-approved participant. Self-rating is rejected.
+- Booking creation rejects locked venues.
+- Manual user and venue locks require `reason`; user lock revokes Sanctum tokens and login remains blocked for `status=locked`.
+
+### Reports
+
+`POST /reports`, `GET /reports`, `GET /reports/{report}`, `PATCH /reports/{report}/review`, `PATCH /reports/{report}/resolve`, and `PATCH /reports/{report}/dismiss` remain separate from rating/review APIs.
+
+Supported `reportable_type` aliases now include:
+
+| Alias | Model |
+|---|---|
+| `user` | `App\Models\User` |
+| `venue` / `venue_cluster` | `App\Models\VenueCluster` |
+| `booking` | `App\Models\Booking` |
+| `review` | `App\Models\Review` |
+| `player_post` | `App\Models\PlayerPost` |
+| `player_rating` | `App\Models\PlayerRating` |
+| `community_post` | `App\Models\CommunityPost` |
+
+Supported report `action_taken` values now include content, account, and venue actions: `warning`, `content_hidden`, `content_deleted`, `user_suspended`, `user_banned`, `account_locked`, `venue_warned`, `venue_locked`.
+
+### Moderation config and automatic evaluation
+
+| Method | Endpoint / Command | Permission | Notes |
+|---|---|---|---|
+| `GET` | `/moderation-configs` | `moderation_config.view` | Lists report/rating thresholds and auto-lock reasons |
+| `PUT` | `/moderation-configs/{key}` | `moderation_config.update` | Updates a threshold or reason |
+| command | `php artisan moderation:evaluate` | CLI | Warns or locks users/venues by reports and bad ratings |
+
+Default keys include `warning_report_count_week`, `auto_ban_report_count_month`, `venue_warning_report_count_week`, `venue_auto_lock_report_count_month`, `bad_rating_threshold`, `bad_rating_count_month_warning`, `auto_lock_rating_avg_threshold`, `min_rating_count_for_auto_lock`, and auto-lock reason keys for users/venues.
+
+### System policies, banners, system posts
+
+| Module | Method | Endpoint | Permission |
+|---|---|---|---|
+| Public policies | `GET` | `/system-policies/public` | None |
+| Policy admin | `GET/POST/PUT/DELETE` | `/system-policies`, `/system-policies/{policy}` | `system_policy.*` |
+| Public banners | `GET` | `/banners/public` | None |
+| Banner admin | `GET/POST/PUT/DELETE/PATCH` | `/banners`, `/banners/{banner}`, `/banners/{banner}/toggle` | `banner.*` |
+| Public system posts | `GET` | `/system-posts/public` | None |
+| System post admin | `GET/POST/PUT/DELETE/PATCH` | `/system-posts`, `/system-posts/{post}`, `/system-posts/{post}/publish` | `system_post.*` |
+
+### Community posts and favorite venues
+
+| Method | Endpoint | Permission | Notes |
+|---|---|---|---|
+| `GET/POST` | `/community-posts` | `community_post.view/create` | Feed and create posts |
+| `GET/PUT/DELETE` | `/community-posts/{post}` | `community_post.view/update/delete` | Owner can manage own post; moderator can manage all |
+| `POST/DELETE` | `/community-posts/{post}/like` | `community_post.view` | Unique like per user |
+| `GET/POST` | `/community-posts/{post}/comments` | `community_post.view` | Visible comments and create comment |
+| `DELETE` | `/community-comments/{comment}` | `community_post.delete` | Owner or moderator |
+| `POST` | `/community-posts/{post}/view` | `community_post.view` | View count throttled per user for 30 minutes |
+| `PATCH` | `/community-posts/{post}/hide` | `community_post.moderate` | Admin/system moderation |
+| `PATCH` | `/community-posts/{post}/publish` | `community_post.moderate` | Republish hidden content |
+| `GET` | `/favorite-venues` | `favorite_venue.view` | Current user's saved venues |
+| `POST/DELETE` | `/venue-clusters/{venueCluster}/favorite` | `favorite_venue.update` | Unique favorite per user/venue |
+
+`GET /venue-clusters?favorite_only=true` filters saved venues, and `GET /community-posts?prioritize_favorite_venues=true` sorts posts from favorite venues first.
+
+## Phase 7.10 Final API Review Fixes
+
+Final review focused on cross-module business rules and routes that must be callable from Postman/Vue.
+
+### Code fixes after review
+
+| Area | Fix |
+|---|---|
+| Booking | New bookings now reject any start time in the past, not only fully elapsed slots |
+| Booking notifications | Booking created/cancelled/confirmed events create DB notifications for affected users |
+| Payment create | `POST /payments` only accepts bookings in `pending_payment` and blocks duplicate pending/success payments |
+| Payment state flow | `mark-paid`, `mark-failed`, checkout complete, and gateway webhook now use one service path with transaction/idempotency guards |
+| Payment retry | Pending retry returns the existing checkout; failed retry creates a new attempt only when booking is still `pending_payment` |
+| Refund | Approve/reject creates DB notifications for the booking customer |
+| Report | Resolve/dismiss keeps report logic separate from reviews and notifies the reporter |
+| Recruitment | Join/approve/reject creates participant notifications while preserving schedule conflict locks |
+| Venue visibility | Non-admin/non-owner venue listing/detail only exposes active venues; owners/admins can still inspect scoped private venues |
+| Community comments | Deleting a parent comment decrements `comment_count` by the deleted subtree size |
+
+### Final verification commands
+
+- `php artisan route:list`: passed.
+- Route controller reflection check: `route_controller_missing=0`.
+- Route permission check against seeded `permissions.code`: `route_permission_missing=0`.
+- `php artisan migrate:fresh --seed`: passed.
+- `php artisan moderation:evaluate`: passed.
+- `php artisan test`: passed.

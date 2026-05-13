@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class PlayerRating extends Model
 {
@@ -42,5 +43,11 @@ class PlayerRating extends Model
     public function post(): BelongsTo
     {
         return $this->belongsTo(PlayerPost::class, 'post_id');
+    }
+
+    /** Reports against this player rating */
+    public function reports(): MorphMany
+    {
+        return $this->morphMany(Report::class, 'reportable');
     }
 }

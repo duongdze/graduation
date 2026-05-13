@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             RoleSeeder::class,
             PermissionSeeder::class,
             RolePermissionSeeder::class,
+            ModerationConfigSeeder::class,
 
             // 2. Lookup data
             CourtTypeSeeder::class,

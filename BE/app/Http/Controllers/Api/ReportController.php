@@ -5,11 +5,15 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Feedback\ReviewReportRequest;
 use App\Http\Requests\Feedback\StoreReportRequest;
+use App\Models\Booking;
+use App\Models\CommunityPost;
 use App\Models\PlayerPost;
 use App\Models\PlayerRating;
 use App\Models\Report;
 use App\Models\Review;
 use App\Models\User;
+use App\Models\VenueCluster;
+use App\Services\NotificationService;
 use App\Support\ApiResponse;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
@@ -21,9 +25,17 @@ class ReportController extends Controller
     private const MODEL_ALIASES = [
         'user' => User::class,
         'review' => Review::class,
+        'venue' => VenueCluster::class,
+        'venue_cluster' => VenueCluster::class,
+        'booking' => Booking::class,
         'player_post' => PlayerPost::class,
         'player_rating' => PlayerRating::class,
+        'community_post' => CommunityPost::class,
     ];
+
+    public function __construct(
+        private readonly NotificationService $notificationService
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -88,6 +100,8 @@ class ReportController extends Controller
             'reviewed_at' => now(),
         ]);
 
+        $this->notifyReportClosed($report, 'report_resolved', 'Report resolved');
+
         return ApiResponse::success('Report resolved successfully', $report->fresh('reviewer'));
     }
 
@@ -101,6 +115,24 @@ class ReportController extends Controller
             'reviewed_at' => now(),
         ]);
 
+        $this->notifyReportClosed($report, 'report_dismissed', 'Report dismissed');
+
         return ApiResponse::success('Report dismissed successfully', $report->fresh('reviewer'));
+    }
+
+    private function notifyReportClosed(Report $report, string $type, string $title): void
+    {
+        $this->notificationService->createForUser(
+            $report->reporter_id,
+            $type,
+            $title,
+            "Your report has been {$report->status}.",
+            'Report',
+            $report->id,
+            [
+                'action_taken' => $report->action_taken,
+                'action_note' => $report->action_note,
+            ]
+        );
     }
 }

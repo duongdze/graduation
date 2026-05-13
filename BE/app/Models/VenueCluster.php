@@ -30,6 +30,9 @@ class VenueCluster extends Model
         'status',
         'approved_by',
         'reject_reason',
+        'lock_reason',
+        'locked_at',
+        'locked_by',
         'rating_avg',
         'rating_count',
     ];
@@ -40,6 +43,7 @@ class VenueCluster extends Model
             'latitude' => 'decimal:7',
             'longitude' => 'decimal:7',
             'amenities' => 'array',
+            'locked_at' => 'datetime',
             'rating_avg' => 'decimal:2',
         ];
     }
@@ -56,6 +60,12 @@ class VenueCluster extends Model
     public function approver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    /** Admin or system actor who locked this venue */
+    public function locker(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'locked_by');
     }
 
     // ── Courts & Config ────────────────────────────────────
@@ -108,6 +118,18 @@ class VenueCluster extends Model
         return $this->hasMany(Review::class, 'cluster_id');
     }
 
+    /** Reports targeting this venue */
+    public function reports(): MorphMany
+    {
+        return $this->morphMany(Report::class, 'reportable');
+    }
+
+    /** Users who favorited this venue */
+    public function favorites(): HasMany
+    {
+        return $this->hasMany(FavoriteVenue::class, 'venue_cluster_id');
+    }
+
     // ── Media ──────────────────────────────────────────────
 
     /** Cover image, gallery photos */
@@ -122,5 +144,11 @@ class VenueCluster extends Model
     public function playerPosts(): HasMany
     {
         return $this->hasMany(PlayerPost::class, 'venue_cluster_id');
+    }
+
+    /** Community posts attached to this venue */
+    public function communityPosts(): HasMany
+    {
+        return $this->hasMany(CommunityPost::class, 'venue_cluster_id');
     }
 }

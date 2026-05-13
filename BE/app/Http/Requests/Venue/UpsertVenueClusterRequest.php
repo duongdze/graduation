@@ -28,6 +28,7 @@ class UpsertVenueClusterRequest extends ApiRequest
             'amenities' => ['nullable', 'array'],
             'amenities.*' => ['string', 'max:50'],
             'status' => ['nullable', 'string', 'in:pending,active,rejected,locked'],
+            'lock_reason' => ['required_if:status,locked', 'nullable', 'string', 'max:2000'],
         ];
     }
 }

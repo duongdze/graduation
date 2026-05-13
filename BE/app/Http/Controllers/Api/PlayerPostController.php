@@ -5,12 +5,16 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Recruitment\UpsertPlayerPostRequest;
 use App\Models\PlayerPost;
+use App\Services\RecruitmentService;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class PlayerPostController extends Controller
 {
+    public function __construct(private readonly RecruitmentService $recruitmentService) {}
+
     public function index(Request $request): JsonResponse
     {
         $posts = PlayerPost::query()
@@ -33,7 +37,16 @@ class PlayerPostController extends Controller
         $data['is_auto_approve'] = $data['is_auto_approve'] ?? true;
         $data['status'] = $data['status'] ?? 'open';
 
-        $post = PlayerPost::create($data);
+        $post = DB::transaction(function () use ($data, $request) {
+            $this->recruitmentService->assertUserHasNoScheduleConflict(
+                $request->user(),
+                $data['play_date'],
+                $data['start_time'],
+                $data['end_time']
+            );
+
+            return PlayerPost::create($data);
+        });
 
         return ApiResponse::success('Player post created successfully', $post->load(['author', 'courtType', 'venueCluster']), 201);
     }
@@ -48,7 +61,25 @@ class PlayerPostController extends Controller
         $this->assertCanManagePost($request, $playerPost);
 
         $data = collect($request->validated())->except(['current_players', 'author_id'])->all();
-        $playerPost->update($data);
+
+        DB::transaction(function () use ($data, $playerPost, $request) {
+            $playDate = $data['play_date'] ?? $playerPost->play_date->toDateString();
+            $startTime = $data['start_time'] ?? $playerPost->start_time;
+            $endTime = $data['end_time'] ?? $playerPost->end_time;
+            $status = $data['status'] ?? $playerPost->status;
+
+            if ($status !== 'cancelled' && $endTime !== null) {
+                $this->recruitmentService->assertUserHasNoScheduleConflict(
+                    $request->user(),
+                    $playDate,
+                    $startTime,
+                    $endTime,
+                    $playerPost->id
+                );
+            }
+
+            $playerPost->update($data);
+        });
 
         return ApiResponse::success('Player post updated successfully', $playerPost->fresh(['author', 'courtType', 'venueCluster']));
     }

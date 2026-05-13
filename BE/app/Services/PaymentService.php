@@ -42,9 +42,20 @@ class PaymentService
                 ]);
             }
 
-            if (! in_array($booking->status, ['pending_payment', 'paid'], true)) {
+            if ($booking->status !== 'pending_payment') {
                 throw ValidationException::withMessages([
                     'booking_id' => ['This booking cannot accept a payment.'],
+                ]);
+            }
+
+            $hasOpenPayment = Payment::where('booking_id', $booking->id)
+                ->whereIn('status', ['pending', 'success'])
+                ->lockForUpdate()
+                ->exists();
+
+            if ($hasOpenPayment) {
+                throw ValidationException::withMessages([
+                    'booking_id' => ['This booking already has an active or successful payment.'],
                 ]);
             }
 
@@ -67,13 +78,17 @@ class PaymentService
             $lockedPayment = Payment::query()->whereKey($payment->id)->lockForUpdate()->firstOrFail();
             $booking = Booking::query()->whereKey($lockedPayment->booking_id)->lockForUpdate()->firstOrFail();
 
-            if ($lockedPayment->status === 'refunded') {
+            if ($lockedPayment->status === 'success') {
+                return $lockedPayment->fresh('booking');
+            }
+
+            if (! in_array($lockedPayment->status, ['pending', 'failed'], true)) {
                 throw ValidationException::withMessages([
-                    'status' => ['Refunded payments cannot be marked as paid.'],
+                    'status' => ['Only pending or failed payments can be marked as paid.'],
                 ]);
             }
 
-            if (! in_array($booking->status, ['pending_payment', 'paid'], true)) {
+            if ($booking->status !== 'pending_payment') {
                 throw ValidationException::withMessages([
                     'booking_id' => ['Booking is not in a payable state.'],
                 ]);
@@ -84,9 +99,7 @@ class PaymentService
                 'paid_at' => now(),
             ]);
 
-            if ($booking->status === 'pending_payment') {
-                $booking->update(['status' => 'paid']);
-            }
+            $booking->update(['status' => 'paid']);
 
             $this->notifyPaymentSuccess($lockedPayment, $booking);
 
@@ -99,9 +112,13 @@ class PaymentService
         return DB::transaction(function () use ($payment) {
             $lockedPayment = Payment::query()->whereKey($payment->id)->lockForUpdate()->firstOrFail();
 
-            if ($lockedPayment->status === 'success') {
+            if ($lockedPayment->status === 'failed') {
+                return $lockedPayment->fresh('booking');
+            }
+
+            if ($lockedPayment->status !== 'pending') {
                 throw ValidationException::withMessages([
-                    'status' => ['Successful payments cannot be marked as failed.'],
+                    'status' => ['Only pending payments can be marked as failed.'],
                 ]);
             }
 
@@ -175,7 +192,10 @@ class PaymentService
                 $payment->update(['status' => 'refunded']);
             }
 
-            return $lockedRefund->fresh(['booking', 'payment']);
+            $freshRefund = $lockedRefund->fresh(['booking', 'payment']);
+            $this->notifyRefundApproved($freshRefund);
+
+            return $freshRefund;
         });
     }
 
@@ -193,6 +213,7 @@ class PaymentService
             $payload = $lockedRefund->toArray();
             $payload['processed_by'] = $actor->id;
             $payload['processed_at'] = now()->toISOString();
+            $this->notifyRefundRejected($lockedRefund->load('booking'));
             $lockedRefund->delete();
 
             return $payload;
@@ -214,7 +235,7 @@ class PaymentService
                 return $lockedPayment->fresh('booking');
             }
 
-            if ($status === 'success' && ! in_array($booking->status, ['pending_payment', 'paid'], true)) {
+            if ($status === 'success' && $booking->status !== 'pending_payment') {
                 throw ValidationException::withMessages([
                     'booking_id' => ['Booking is not in a payable state.'],
                 ]);
@@ -228,9 +249,7 @@ class PaymentService
             ]);
 
             if ($status === 'success') {
-                if ($booking->status === 'pending_payment') {
-                    $booking->update(['status' => 'paid']);
-                }
+                $booking->update(['status' => 'paid']);
 
                 $this->notifyPaymentSuccess($lockedPayment, $booking);
             }
@@ -272,5 +291,41 @@ class PaymentService
                 ['payment_id' => $payment->id]
             );
         }
+    }
+
+    private function notifyRefundApproved(Refund $refund): void
+    {
+        $booking = $refund->booking;
+        if (! $booking?->customer_id) {
+            return;
+        }
+
+        $this->notificationService->createForUser(
+            $booking->customer_id,
+            'refund_approved',
+            'Refund approved',
+            "Refund for booking {$booking->booking_code} has been approved.",
+            'Refund',
+            $refund->id,
+            ['booking_id' => $booking->id, 'amount' => $refund->amount]
+        );
+    }
+
+    private function notifyRefundRejected(Refund $refund): void
+    {
+        $booking = $refund->booking;
+        if (! $booking?->customer_id) {
+            return;
+        }
+
+        $this->notificationService->createForUser(
+            $booking->customer_id,
+            'refund_rejected',
+            'Refund rejected',
+            "Refund request for booking {$booking->booking_code} was rejected.",
+            'Booking',
+            $booking->id,
+            ['refund_id' => $refund->id]
+        );
     }
 }
